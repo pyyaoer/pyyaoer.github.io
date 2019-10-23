@@ -1,0 +1,98 @@
+---
+layout: post
+title:  "Haskell学习——准备阶段"
+date:   2014-06-13 09:38:40 +0800
+categories: Haskell
+---
+
+零基础，纯粹期末考试周蛋疼作死中。。
+
+貌似《Real World Haskell》这本书不错，钻研下。。
+
+0\.
+
+用ghci写个1+1，然后出现了问题：
+{% highlight shell %}
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: No such file or directory
+{% endhighlight %}
+
+出现这种错误的原因是无法定位到当前工作文件夹，也就是你当前的目录已经被你删掉了。。好囧的错误。
+
+1\.
+
+一切就绪以后，会出现Prelude>提示符告诉你Prelude库已经加载完毕，Prelude库是Haskell缺省加载的库。
+
+模块Prelude有时候被称为“标准序幕”(the standard prelude)，因为它的内容是基于Haskell 98标准定义的。通常简称它为“序幕”(the prelude)。
+
+
+此时有两种输入——命令或是表达式。先来研究一下**命令**：
+
+1. 命令是以:开头的。
+2. 帮助命令 :? 或 :help
+3. 退出命令 :q 或 :quit
+4. 加载你自己编写的hs文档的命令 :l 和 :r 或 :load 和 :reload
+5. 执行shell命令 :!<cmd>，比如 :!ls
+
+——做了个小实验，执行一下:!ghci然后发现需要:q两次。。。真是闲的蛋疼(´･_･`)
+
+2\.
+
+Haskell比较引人注目的地方在于它的类型检查系统，所以有一些类型检查的命令需要注意：
+
+1. :t 或 :type 显示出这个表达式的类型
+2. :set +t 所有表达式默认显示出其类型
+3. :unset +t 字面意思
+4. :i <name> 显示info，比如 :i (+)
+
+当然，set也有很多其他参数，比如:set prompt可以把你的模块的默认提示符给改掉啊什么的，不细说了。。
+
+3\.
+
+show系列的命令也很有意思，比如:show bindings，:show breaks，:show imports等等，都是很有用的命令。
+
+还有一些debug命令，目前还用不上，先不管它了。。
+
+分别实验一下1+1，2^65535，3\*\*8，2\*\*65535，"hello world"
+
+4\.
+
+ghci有个比较坑的地方，它自身不是一个纯函数，这有点类似于IO Monad。
+
+因此可以这样理解，它将所有的输入都当作IO action，因此可以支持强制以某种顺序执行输入的代码(若加载一个hs文本，它会将整个文件看做一个过程，解释顺序是不可预测的)，但这样丧失了所有的灵活性。比如你可以在hs文件中写入以下代码：
+{% highlight haskell %}
+c = a + b
+a = 1
+b = 2
+{% endhighlight %}
+
+load到ghci后，执行c可以正常输出3。但是你在ghci中就无法完成这种次序的声明。所以你无法像python一样把源代码粘贴到shell下运行。
+
+注意到，这里的＝并不是赋值的意思。要知道，Haskell本着**万物皆函数**的思想，这里的a＝1的意思是定义了一个没有输入的函数a，它会返回1。
+
+同样的，+也是一个函数，只是因为它有两个参数故采用了人们所喜闻乐见的中缀写法。但你完全可以这么写：
+{% highlight haskell %}
+c = (+) a b
+{% endhighlight %}
+
+不信的话可以去看info:
+
+{% highlight haskell %}
+Prelude> :info (+)
+class Num a where
+  (+) :: a -> a -> a
+  ...
+  	-- Defined in `GHC.Num'
+infixl 6 +
+{% endhighlight %}
+
+
+5\.
+
+大体就是这样了，没个中心思想，大体算是在讨论ghci的命令和ghci局限性吧。。
+
+另外补充一点，ghci提供了一个名为it的特殊变量，它和计算器里的ANS一样，保存的是上一次计算的结果。
+
+每次ghci打印的时候都会先打印出it的值，然后打印出 it ::  T 表示表达式 it 的类型为 T。
+
+----------
+转载请注明出处，欢迎关注我的新浪微博[@窃听者Oscar](http://weibo.com/u/2703572323)

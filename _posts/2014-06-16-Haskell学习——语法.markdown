@@ -1,0 +1,150 @@
+---
+layout: post
+title:  "Haskell学习——语法"
+date:   2014-06-16 09:38:55 +0800
+categories: Haskell
+---
+
+
+## if-then-else
+
+Haskell是以表达式为主导的语言(expression-oriented)，所有语句必须要能给出一个具体的值。比如我们喜闻乐见的if-else结构：
+{% highlight haskell %}
+Prelude> if True then 1
+
+<interactive>:24:15:
+    parse error (possibly incorrect indentation or mismatched brackets)
+{% endhighlight %}
+
+无法通过编译？实际上很简单，如果if a then 1 可以通过编译的话，当a取定False的时候这个表达式就无法给出一个具体的值了——这和命令式语言有很大的不同。命令式语言是一堆陈述(statement)的序列，关心 if-else的返回值几乎没什么意义。而Haskel则要求一切表达式必须要能给出值，因此——
+
+我们必须要填补else：
+
+{% highlight haskell %}
+Prelude> if True then 1 else "foo"
+
+<interactive>:2:14:
+    No instance for (Num [Char])
+        arising from the literal `1'
+    Possible fix: add an instance declaration for (Num [Char])
+    In the expression: 1
+    In the expression: if True then 1 else "foo"
+    In an equation for `it': it = if True then 1 else "foo"
+{% endhighlight %}
+ 
+还是无法通过编译？
+
+错误还是比较明显的。作为纯函数至上的语言，作为一个可以进行静态类型分析的语言，一个纯的表达式在不同输入下的返回值的类型不同，这种行为简直是不能忍受的。因此，将"foo"改成2，则就可以顺利通过：
+
+{% highlight haskell %}
+<interactive>:2:14:
+Prelude> if True then 1 else 2
+1
+{% endhighlight %}
+ 
+
+下面来看一个比较复杂的例子(别忘了函数定义最好放在hs文件中)：
+
+{% highlight haskell %}
+<interactive>:2:14:
+myDrop n xs = if n <= 0 || null xs
+              then xs
+              else myDrop (n - 1) (tail xs)
+{% endhighlight %}
+ 
+这是模拟一个模仿drop的函数。好吧其实也不复杂。。顶多也就是个递归什么的。。
+
+另外注意，null是一个函数，它接受一个列表，返回一个Bool表示该列表是否为空：
+
+{% highlight haskell %}
+Prelude> :info null
+null :: [a] -> Bool 	-- Defined in `GHC.List'
+{% endhighlight %}
+ 
+另外也可以从这个例子略看出Haskell的类型推导的一些方法，为什么Haskell能知道xs是一个列表呢？Haskell又怎么知道myDrop的返回值呢？Haskell又是通过什么方式推断出类型矛盾的呢？——虽然这并不是本文想讨论的内容，但还是比较有意思所以写一下好了。
+
+首先，可以看出，null的定义里的输入必须是一个[a]，tail的输入也必须是一个[a]，因此Haskell可以自动判断xs是一个[a]类型。
+
+然后，根据if-then-else中then的返回可以看出myDrop的一种返回为xs，因此myDrop的返回类型至少是[a]——前面已经判断出xs是[a]类型，但有时候可能会更具体化为[Num]啊[Char]之类的，所以说"至少是"。
+
+最后，根据else语句，现在已经假定了myDrop的返回类型是[a]，而myDrop (n - 1) (tail xs) 又符合myDrop的输入是一个合法的语句，因此它在没有其他条件限制下返回类型也是[a]，匹配成功，喜闻乐见。
+
+上述三步只是一个很简略的过程，实际上的操作比这个略复杂，因为Haskell还需要考虑各种subtyping问题，但原理实际上并不复杂。有兴趣的可以去看Types+and+Programming+Languages一书。RWH和TPL两本搭配着看，效果拔群！
+
+另外注意，实际上这个函数写到同一行也是没问题的，只是读起来艰涩些：
+
+{% highlight haskell %}
+myDropX n xs = if n <= 0 || null xs then xs else myDropX (n - 1) (tail xs)
+{% endhighlight %}
+
+虽然Haskell没有python那样对缩进要求那么严格，但千万不要省略缩进——它会延续一个已存在的定义，而不是新创建一个。
+
+## 模式匹配
+
+
+## 惰性求值
+
+很多语言提供了短路求值。比如C中的 exp1 && exp2 表达式，在exp1被判断为false后exp2是不会被执行求值的。这是一种逻辑运算符的最小化计算策略。
+
+在Haskell中可以很容易举出类似的例子——
+
+{% highlight haskell %}
+True || (length[1..] > 0)
+{% endhighlight %}
+ 
+还记得那个无限列表[1..]么？直接在ghci中查看[1..]的话，你除非强制结束ghci进程，否则只能等着被无限刷屏。但这个表达式可以正常终止，因为左边的True把右边的计算给“短路”了。
+
+与短路求值不同，惰性求值将这个最小化计算贯彻到了极致——
+
+表达式不在它被绑定到变量之后就立即求值，而是在该值被取用的时候求值，也就是说，语句如 x:=expression; (把一个表达式的结果赋值给一个变量)明显的调用这个表达式被计算并把结果放置到 x 中，但是先不管实际在 x 中的是什么，直到通过后面的表达式中到 x 的引用而有了对它的值的需求的时候，而后面表达式自身的求值也可以被延迟，最终为了生成让外界看到的某个符号而计算这个快速增长的依赖树。(摘自wiki)
+
+考虑如下的代码：
+
+{% highlight haskell %}
+head [1..]
+{% endhighlight %}
+ 
+如果是python的话，这会带来很大的麻烦——传递给head的参数必须要被规约，这样就会挂起。而采用了惰性求值策略，它却可以正常给出结果1。
+
+也可以考虑看上去更恐怖的表达式：
+{% highlight haskell %}
+head (tail [1..])
+{% endhighlight %}
+ 
+Haskell可以给出正确结果2，但不要忘了(tail [1..])的结果也是一个无限列表！因此，惰性求值的策略既不要求输入是被规约的，也不会要求让输出也被规约。它只要求在必须要进行规约的时候才开始规约。
+
+这种惰性求值的策略给用户构造无限列表带来了可能。比如一个fibonacci序列——
+{% highlight haskell %}
+fibs = 0 : 1 : zipWith (+) fibs (tail fibs)
+{% endhighlight %}
+ 
+在定义的时候并不会进行对列表的求值，否则它理论上将是无穷无尽的，除非把你的内存耗尽。
+
+这样的无限列表有什么好处呢？
+
+可以想见，一个C程序员某一天需要写一个求fibonacci前n项和的函数，而他第二天需要写一个求前n个偶数项的和的函数，第三天又要返回fibonacci的第n项，他岂不是会疯掉——虽然每次函数变化都不是太大，但他需要一次一次重复写fibonacci。
+
+而无限列表fibs构造完后，他就无需再对fibonacci本身进行考虑了，他唯一要写的是对这个列表进行操作的函数。即便是下次需要将所有的fibonacci都替换成差比数列，他需要改动的地方也没有几处。
+
+都说面向对象语言的模块化独步天下，但从这点来看面向对象还是too young too simple。
+
+#### 惰性累计
+
+其实Haskell的惰性求值也没有上面说的这么光鲜亮丽。有的人说是好的，也有人说是坏的。比如所谓“惰性累计”也许会是一个很严重的问题。
+
+在Haskell对惰性求值的实现里，它引入了一个名为thunk的概念(习惯上也有人会称之为bottom)，它表示对象还未被求值——这就带来了三个方面的开销：
+
+首先，每次使用一个对象的时候都需要检查该对象是否已经被求值，这在数据量很大的情况下开销是不能忽略的，而且因为是运行时检查因此无法被编译器优化。
+
+其次，就是所谓的“惰性累计”。这也许听起来不算什么——毕竟所有的运算都是必要的，但这会导致程序的性能难以分析，这对大工程的测试会有很不利的影响。
+
+最后，Haskell的所有thunk必须经过“副作用”才能够更新。这意味着所有的这种thunk必须要保存在内存里而不是寄存器中。暂且不说内存利用率的问题，单是这种忽视计算机存储层次结构速度差异的大无畏精神简直就是欧文的空想社会主义。
+
+王垠的博文中有这么一段话：
+
+> Haskell 其实是问题非常严重的语言。他们的设计者却非要把缺点也说成优点。当你委婉的批评它的设计的时候，它的粉丝们总是以一种很高的姿态说，这里面道理太深了，你不懂。可笑的是，当他们面对我这样的水平超过它的设计者的专家的时候，居然也是这种态度。这也许就是人的劣根性：你越是尊敬他们，越是委婉，他们越是以为你不懂，于是继续试图糊弄你。
+
+在我看来，Haskell也许仅仅是为类型系统、Rank-N Polymorphism思想构造一片试验田而已，效率什么的随它去好了——只是“语言必须完整”这一观念给Haskell带来了太多没用的东西。我们给纯粹理性以双腿，却拔掉其双翅，也许可以更轻松地在地面跑步、跳跃，但却再也无法在天空飞翔。
+
+实际上还有更多的reduce策略：full beta-reduction、normal order、call by name和call by value是最常用讨论的四种，而最后一种是在程序语言设计中应用最广泛的。Haskell采用的策略类似于call by name，但由于thunk的存在，每个特定的value只会被规约一次——Wadsworth称之为call by need。
+

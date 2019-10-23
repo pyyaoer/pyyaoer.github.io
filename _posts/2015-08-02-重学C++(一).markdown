@@ -1,0 +1,111 @@
+---
+layout: post
+title:  "重学C++(一)"
+date:   2015-08-02 10:16:48 +0800
+categories: c++
+---
+
+## 序
+一直以来都把C++当作C+template+STL，然而C++其实远不止此。
+
+有天，大师兄神神秘秘地叫住我：“给你看段C++，猜猜它是在做什么？”显然我并没有看懂。据他说这四行代码牵涉到C++的五个较为罕见的语法点orz
+
+于是就有了写本系列博客的欲望。以C++11标准的[Working Draft](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2012/n3337.pdf)为根据，以期总结一些以前不太留意的、比较有意思的C/C++特性。
+
+记得有位哲人曾经说过这么一句话，我认为非常切题：
+>大一就已经学过C++，到了大四却看不懂几行代码。
+
+没错这是我说的。
+
+## Trigraph Sequences
+Trigraph Sequences是一个古老且讨厌的东西。它出现的原因是某些键盘只支持[ISO 646](https://en.wikipedia.org/wiki/ISO/IEC_646)——C/C++语言标准中包含了该字符集以外的一些字符(#{}[]等)。
+
+虽然我感觉这辈子也遇不到一个这样的键盘，但C/C++的预处理程序还是会乖乖地把程序中所有的Trigraph Sequences给替换掉。
+
+C99或是C++0x下的一个有趣的例子：
+{% highlight c++ %}
+int i = 0;
+//test??/
+i++;
+{% endhighlight %}
+打印出`i`后可以发现`i++`根本没有被执行。因为`??/`被替换成了`\`，而这会把下一行与本行拼接起来。
+
+所以在我们写程序时要时刻注意两个问号连用的情况，无论是在注释还是在字符串中(可能会报warning，g++中可以使用-Wno-trigraphs关闭提示)。下面是C++11(也有人管它叫C++0x)标准中规定的所有Trigraph Sequences：
+|Trigraph|Replacement|Trigraph|Replacement|Trigraph|Replacement|
+|----------|----------|----------|----------|----------|----------|
+|??=|#|??(|[|??<|{|
+|??/|\ |??)|]|??>|}|
+|??'|^|??!|\||??-|~|
+
+还有一个需要非常留意的地方：在预编译阶段Trigraph的替换是**首先会发生**的操作，在**任何**其他的预处理之前。
+
+## Alternative Tokens
+Trigraph有效地解决了ISO 646的问题，然而这么写程序真的是太丑了：
+{% highlight c++ %}
+//#define arraycheck(a,b) a[b] || b[a]
+??=define arraycheck(a,b) a??(b??) ??!??! b??(a??)
+{% endhighlight %}
+于是人们发明了第二套方案，使用Alternative Token来替换无法显示的token：
+{% highlight c++ %}
+//#define arraycheck(a,b) a[b] || b[a]
+%:define arraycheck(a,b) a<:b:> or b<:a:>
+{% endhighlight %}
+好看多了是吧。
+
+在C中同样的东西是以宏的形式定义在`<iso646.h>`中，而在C++中是内建在语法中的。
+
+为什么要使用token这个词，而不像Trigraph一样用Sequence呢？前面提到过，在预编译阶段Trigraph的替换是首先发生的，是在识别token之前的。这意味着不论这个Trigraph的位置在哪里它都会被替换。
+
+而在C++11中提到，Alternative Tokens会以token为单位替换它的原始token。作为比较，可以在g++中使用-std=c++11编译选项，运行一下这段程序：
+{% highlight c++ %}
+cout << "??(" << endl; //print [
+cout << "<:" << endl;  //print <:
+{% endhighlight %}
+
+下面是C++11规定的所有Alternative Tokens：
+|Alternative|Primitive|Alternative|Primitive|Alternative|Primitive|
+|----------|----------|----------|----------|----------|----------|
+|<%|{|and|&&|and_eq|&=|
+|%>|}|bitor|\||or_eq|\|=|
+|<:|[|or|\|\||xor_eq|^=|
+|:>|]|xor|^|not|!|
+|%:|#|compl|~|not_eq|!=|
+|%:%:|##|bitand|&|
+
+注意到，此处把%:%:当作一个整体而不是两个独立的%:，这正是一个完整的token(区别于C中的宏定义形式)。
+
+## Escape Sequence
+转义字符其实没什么多说的。
+
+以前忽略的一点是八进制或十六进制数形式的直接转义。前者直接就是`\ooo`，后者`\xhhh`要在前面加一个x。最常用的就是`\0`啦。
+
+这种形式的转义，八进制字符最多有三个，而对十六进制的合法字符来说并没有什么数目的限制，碰到第一个非法字符即认为character literal结束。溢出怎么办，就由编译器决定咯。
+
+## Raw String
+为了简化包含大量需要转义字符的字符串的书写，python采用了原始字符串的方法，C++11也开始使用这一概念：
+$$prefix_{opt}R"delimiter_{opt}\left(raw\_character_{opt}*\right)delimiter_{opt}"$$
+
+ 1. $prefix$是可选项，包括u8、u、U和L。前三者是从C++11开始才有的新特性。这四种前缀对应的字符串类型分别为`const char[]`、`const char_16[]`、`const char_32[]`和`const wchar_t[]`。
+ 2. 字母$R$是Raw String的标志。
+ 3. $delimiter$是可选项，的作用是标记Raw String的开头和结尾，至多16个字符。这16个字符中不能出现转义符\、左右圆括号()和空格等空白字符。注意开头结尾的两个$delimiter$是一样的。
+ 4. $raw\_character$也是可选项。它们被包含在`d(`和`)d`之间，不能包含结束符号组合`)d`。其中`d`代表一个特定的$delimiter$，可以为空。
+
+Raw String能Raw到什么程度呢？它连源代码中的换行符也不会放过的：
+{% highlight c++ %}
+const char *p = R"(a\
+b
+	c)";
+assert(std::strcmp(p, "a\\\nb\n\tc") == 0);
+{% endhighlight %}
+更神奇的是这个：
+{% highlight c++ %}
+const char *p = R"(??)";
+assert(std::strcmp(p, "\?\?") == 0);
+{% endhighlight %}
+如果看过前面关于Trigraph Sequences的介绍，这两句的重要性就不言而喻了。显然，Trigraph替换是在识别任何token之前发生的，但为何这里咋又变回来了呢？
+
+且听下回分解。
+
+
+----------
+转载请注明出处，欢迎关注我的新浪微博[@窃听者Oscar](http://weibo.com/u/2703572323)

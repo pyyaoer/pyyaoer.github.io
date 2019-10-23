@@ -1,0 +1,151 @@
+---
+layout: post
+title:  "Haskell学习——函数"
+date:   2014-06-15 19:24:40 +0800
+categories: Haskell
+---
+
+“一切皆对象”
+
+“一切皆进程”
+
+“一切皆过程”
+
+“一切皆函数”
+
+
+
+作为一门通用纯函数式语言，Haskell恪守着“一切皆函数”的原则。
+
+我曾经在没有接触过任何函数式语言的时候作死选了编程语言的课程，没上两节课就来λ表达式，三个term走遍天下，构造tru，fls，church numeral什么的，构造succ，times，fix什么的，现在想起来简直就是作死。不过这也给今天看Haskell带来了很大的方便，也不知道是幸运还是不幸orz。。
+
+Haskell和常见的C等语言不同，如果你使用 f(a,b) 这种格式妄图给f传递两个参数是不严密的——它会把(a,b)当作一个整体，即一个元组(元组见上一篇)。
+
+正确的用法是 f a b，以空格分开函数和各个变量。虽然一开始可能有些不习惯，但习惯了后会渐入佳境的。。大概。。
+
+
+吐槽完毕，下面是正文部分。
+
+
+
+## hs文件的正确使用方法
+
+第一篇曾经说过，ghci中"无法定义函数"——当然如果你喜欢的话，用let bind也是可以的，但ghci语法上和top level中的Haskell语法有着本质的不同。
+
+新建一个hs文件，比如hello.hs：
+
+
+{% highlight haskell %}
+-- hello.hs
+add a b = a + b
+{% endhighlight %}
+
+
+add做的事情很简单，等号左边是函数名称add以及**空格分开**的两个参数a和b。运算结果就是a+b。
+
+注意到，Haskell中没有很多语言中那种“返回值”的概念——因为一个函数就是一个单独的表达式(a single expression)，而不是一个陈述的序列(a sequence of statement)，求值表达式所得的结果就是函数的返回值。
+
+在Haskell中等号的意思是“定义为”而不应理解为赋值——不过以Haskell的观点，函数就是值，表达式就是值，过程就是值，理解成赋值那也没办法。
+
+然后你就可以在ghci中采用:load hello.hs的方式载入并使用该文件：
+
+
+{% highlight haskell %}
+Prelude> :load hello.hs
+[1 of 1] Compiling Main             ( hello.hs, interpreted )
+Ok, modules loaded: Main.
+*Main> add 1 2
+3
+{% endhighlight %}
+ 
+可以看到，现在你自己定义的add已经可以使用了。
+
+在你传递参数的时候，add后面不能出现这样的情况：add 1+2 3，看起来好像是传递了1+2和3两个参数给add，在优先级＋比add低的情况下，+看到了自己的两个操作数"add 1"和"2 3"，这显然是无法理解的。因此这样的情况一定要加括号。
+
+由于错误信息太长，我就不粘贴了。。可以试一下
+
+你也可以查看Haskell类型检查的结果：
+
+{% highlight haskell %}
+*Main> :info add
+add :: Num a => a -> a -> a 	-- Defined at hello.hs:2:1
+*Main> :type add
+add :: Num a => a -> a -> a
+{% endhighlight %}
+ 
+
+当然，你也可以定义main函数，以RWH第一章中的统计行数程序为例：
+{% highlight haskell %}
+main = interact wordCount
+    where wordCount input = show (length (lines input)) ++ "\n"
+{% endhighlight %}
+ 
+
+你可以使用ghc来编译生成可执行文件：
+{% highlight haskell %}
+$ ghc hello.hs
+[1 of 1] Compiling Main             ( hello.hs, hello.o )
+Linking hello ...
+$ ./hello < tmp.txt 
+7
+{% endhighlight %}
+ 
+
+也可以使用runghc直接运行之：
+
+{% highlight haskell %}
+$ runghc hello.hs < tmp.txt 
+7
+{% endhighlight %}
+ 
+
+当然理论上也可以在ghci中将main当成普通的函数来处理，但由于使用了interact，因此就无法像上面那样直接传入文件了。
+
+
+
+## Haskell 函数纯度
+
+又回到了这个艰难的问题。函数纯不纯，主要看它有没有副作用，即函数的行为会不会受到全局状态的影响。
+
+C等语言里不纯的函数例子太多，内存的读写啊，io啊，相同的输入在不同的环境下函数的输出可能是完全不同的。书里举了一个命令式语言的例子：假设有某个函数，它读取并返回某个全局变量，如果程序中的其他代码可以修改这个全局变量的话，那么这个函数的返回值就取决于这个全局变量在某一时刻的值。我们说这个函数带有副作用，尽管它并不亲自修改全局变量。
+
+但是Haskell希望将大部分函数变得"纯"，比如pi函数，它无论在何时何地都会返回常量pi；上面定义的add函数，add 1 2 永远是3。
+
+但是有人会说，add exp1 exp2，如果exp1本身就不纯，那add的行为岂不是也不纯了——这就是Haskell希望函数“纯”的基础之一，即纯函数的组合永远是纯的。
+
+在此基础上，Haskell保证了系统的、你自己定义的大部分函数都是纯的，而只有类型签名以IO开头的少数函数是不纯的。
+
+上文中给出的统计行数的例子中有一个名为interact的函数，可以去看一下它的info：
+
+
+{% highlight haskell %}
+Prelude> :info interact
+interact :: (String -> String) -> IO () -- Defined in `System.IO'
+{% endhighlight %}
+ 
+
+可以看到，它的类型是传入一个类型为 String->String 的函数，然后返回一个类型为 IO () 的函数。我在[一个文章](http://www.cnblogs.com/IBBC/archive/2011/07/25/2116321.html)里看到的关于这方面的说明，就直接粘过来了：
+
+
+
+|Pure|Impure|
+|给定相同参数总是返回相同值|对相同参数可能返回不同值|
+|永远没有副作用|可以有副作用|
+|用于不改变状态|可以改变程序、系统或外界的全局状态|
+
+> **为什么纯粹性如此重要**
+
+> 这一节中我们已经探讨了Haskell是如何将纯函数式代码与I/O动作清楚的分离开来的。大多数语言并不会这样区分。像C或Java这样的语言里，编译器不能保证某一个函数对相同的参数总是返回相同的值，或者保证一个函数永远没有副作用。要想知道一个函数是否有副作用，唯一的办法就是去读它的文档，而这文档还不一定准确。
+
+> 程序中很多bug都是由一些出乎意料的副作用导致的。还有一些就是因为被一个函数对相同的输入返回不同的结果给搞糊涂了。随着多线程和其他形式的并行变得越来越平常，要管理全局的副作用就变得愈加困难了。
+
+> Haskell这种把副作用隔离进I/O动作的方法提供了一个清楚的边界。你总是可以清楚地知道系统的哪一部分可能会修改状态，哪些不会。你总是可以确信程序中纯函数式的那部分代码不会产生出人意料的结果。这可以帮助你编写程序。同样也可以帮助编译器来理解你的程序。例如最近一些版本的ghc就可以对代码中纯函数式的部分——这部分代码可说是计算中的圣杯——提供一定程度的自动的并行处理。
+
+那篇文章中还有很多很多关于I/O的例子，因为我还没看到I/O，所以就不粘了。。
+
+
+好吧，刚刚发现那篇就是RWH的翻译orz
+
+
+----------
+转载请注明出处，欢迎关注我的新浪微博[@窃听者Oscar](http://weibo.com/u/2703572323)

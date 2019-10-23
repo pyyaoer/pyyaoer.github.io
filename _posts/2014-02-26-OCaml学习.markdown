@@ -1,0 +1,426 @@
+---
+layout: post
+title:  "OCaml学习"
+date:   2014-02-26 12:12:22 +0800
+categories: OCaml
+---
+
+
+
+## 安装
+
+Linux环境下
+{% highlight shell %}
+apt-get install ocaml
+apt-get install ledit
+apt-get install tuareg-mode
+{% endhighlight %}
+
+Windows环境下
+
+自行下载OCamlWinPlus
+
+## 学习资源
+
+《Practical OCaml》, Joshua B. Smith
+
+[官方文档](http://caml.inria.fr/distrib/ocaml-4.01/ocaml-4.01-refman.pdf)
+
+[教程网站](http://ocaml.org/learn/)
+
+
+## 笔记
+
+### 一、注释
+{% highlight ocaml %}
+# (*comment*)
+{% endhighlight %}
+
+### 二、let给表达式的结果赋一个名字
+
+使用let定义一个整型：
+
+{% highlight ocaml %}
+# let inchesPerMile = 12*3*1760;;
+val inchesPerMile : int = 63360
+{% endhighlight %}
+
+使用let定义一个函数：
+
+{% highlight ocaml %}
+# let cube (x:int) = x*x*x;;
+val cube : int -> int = <fun>
+{% endhighlight %}
+ 
+{% highlight ocaml %}
+# let square x = x *. x;;
+val square : float -> float = <fun>
+{% endhighlight %}
+ 
+多个参数：
+
+{% highlight ocaml %}
+# let sumsq (x:int) (y:int) = x*x + y*y;; 
+val sumsq : int -> int -> int = <fun>
+{% endhighlight %}
+ 
+ocaml里的类型检查和判断是自动完成的。
+
+### 三、布尔型true和false
+
+not方法：
+
+{% highlight ocaml %}
+# not (5=10);;
+- : bool = true
+{% endhighlight %}
+ 
+条件表达式 if xx then xx else xx：
+
+{% highlight ocaml %}
+# if true then (3*5) else (5-2);;
+- : int = 15
+{% endhighlight %}
+ 
+
+### 四、浮点数float
+
+浮点方法：
+
+{% highlight ocaml %}
+# 1. +. 2.1;;
+- : float = 3.1
+{% endhighlight %}
+ 
+{% highlight ocaml %}
+# 2.3 *. -3.5;;
+- : float = -8.04999999999999893
+# (*注意比较“+.”和“+”*)
+{% endhighlight %}
+ 
+需要注意的是，形如 1 + 1.0 或是 1 +. 1.0之类的运算都是会报错的，这时候需要用到类型转换函数type_of_type：
+
+{% highlight ocaml %}
+# 1 + 1.0;;
+Error: This expression has type float but an expression was expected of type
+         int
+{% endhighlight %}
+
+{% highlight ocaml %}
+# 1 +. 1.0;;
+Error: This expression has type int but an expression was expected of type
+         float
+{% endhighlight %}
+
+{% highlight ocaml %}
+# float_of_int 1 +. 1.0;;
+- : float = 2.
+{% endhighlight %}
+
+
+总结下(3月24日)：
+ocaml最基础的数据类型有如下几种([来源](http://ocaml.org/learn/tutorials/basics.html))
+1. **int**  在32位处理器上是**31位**的，64位处理器上是**63位**的，剩下的一位做了回收机制的flag。不过要是非想要c的效果，可以使用ocaml在[Nativeint模块](http://caml.inria.fr/pub/docs/manual-ocaml/libref/Nativeint.html)中提供的nativeint类型。同样的，uint也可以使用nativeint模仿
+2. **bool** true,false
+3. **char** 8位的字符，不支持utf-8和unicode
+4. **string** "Hello world"
+5. **float** ieee标准的双精度浮点数，不支持单精度浮点数
+6. **unit** 这个是很有意思的一个数据类型，写作()，用于制作序列运算，具体可以参照tpl书上的做法
+
+ocaml基础的操作符：
+1. **+** 整型加法
+2. **-**  整型减法
+3. **~-**或**-**   整型负
+4. **\*** 整型乘法
+5. **/**  整型除法，若除零则会raise一个Division_by_zero
+6. **mod**  整型同余，若第二个参数为0则会raise一个Division_by_zero
+7. **land**  整型的逐位逻辑与
+8. **lor**  整型的逐位或
+9. **lxor**  整型的逐位异或
+10. **lsl**  整型的逻辑左移
+11. **lsr**  整型的逻辑右移
+12. **asr**  整型的算数右移
+13. **+.**  浮点加法
+14. **-.**  浮点减法
+15. **~-.**或**-.**  浮点负
+16. **\*.**  浮点乘法
+17. **/.**  浮点除法
+18. **\*\***  浮点乘方
+19. **@**  列表连结
+20. **^**  字符串连结
+21. **!**  取引用
+22. **:=**  引用赋址
+23. **=**  结构意义上的相等
+24. **<>**  结构意义上的不相等
+25. **==**  物理意义上的相等
+26. **!=**  物理意义上的不相等
+27. **<**  小于
+28. **<=**  不大于
+29. **>**  大于
+30. **>=**  不小于
+31. **&&**  布尔与
+32. **\|\|**  布尔或
+
+其中比较有意思的一个是结构意义上的相等和物理意义上的相等的区别。官方文档里给出了这样两段话：
+
+e1 = e2 tests for structural equality of e1 and e2. **Mutable structures** (e.g. references and arrays) are equal *if and only if their current contents are structurally equal, even if the two mutable objects are not the same physical object*. Equality between functional values raises Invalid_argument. Equality between cyclic data structures may not terminate.
+
+e1 == e2 tests for physical equality of e1 and e2. On **mutable types** such as references, arrays, strings, records with mutable elds and objects with mutable instance variables, e1 == e2 is true *if and only if physical modi cation of e1 also a ects e2*. On **non-mutable types**, the behavior of ( == ) is implementation-dependent; however, it is guaranteed that e1 == e2 implies *compare e1 e2 = 0*.
+
+另外也要注意到，这些操作符在ocaml中也是被当作val对待的。联同其他的一些最常用的val一起被定义在Pervasives模块中，是ocaml默认包含的模块。
+
+这个模块里常见的除了上面列举出来的，还有pred,succ,min,max,compare,raise,sin,abs,log,exp等等，篇幅所限就不写了。
+
+### 五、递归函数
+
+rec标识：
+
+{% highlight ocaml %}
+# let rec fact(n:int) = if n = 0 then 1 else n * fact(n-1);;
+val fact : int -> int = <fun>
+{% endhighlight %}
+
+
+### 六、列表
+
+元素类别必须相同：
+
+{% highlight ocaml %}
+# [1;2;3;];;
+- : int list = [1; 2; 3]
+{% endhighlight %}
+ 
+{% highlight ocaml %}
+# [];;
+- : 'a list = []
+{% endhighlight %}
+
+从前方追加元素，::读作"cons"，是右结合的：
+
+{% highlight ocaml %}
+# 1:[2;3];;
+- : int list = [1; 2; 3]
+{% endhighlight %}
+ 
+{% highlight ocaml %}
+# 1:2::3::[];;
+- : int list = [1; 2; 3]
+{% endhighlight %}
+
+
+使用List模块中的List.hd和List.tl操纵列表元素：
+
+{% highlight ocaml %}
+# List.hd [1;2;3];;
+- : int = 1
+{% endhighlight %}
+ 
+{% highlight ocaml %}
+# List.tl [1;2;3];;
+- : int list = [2; 3]
+{% endhighlight %}
+
+
+一些例子：
+
+1) 尾部追加元素
+{% highlight ocaml %}
+# let rec snoc(l:int list)(x:int)=
+  if l=[] then x::[]
+  else List.hd l :: snoc(List.tl l) x;;
+val snoc : int list -> int -> int list = <fun>
+# snoc [5;4;3;2] 1;;
+- : int list = [5; 4; 3; 2; 1]
+{% endhighlight %}
+
+2) 倒置元素
+{% highlight ocaml %}
+# let rec revaux(l:int list)(res:int list)=
+  if l=[] then res
+  else revaux (List.tl l) (List.hd l :: res);;
+val revaux : int list -> int list -> int list = <fun>
+# revaux [1;2;3][4;5;6];;
+- : int list = [3; 2; 1; 4; 5; 6]
+# let rev(l:int list) = revaux l [];;
+val rev : int list -> int list = <fun>
+# rev [1;2;3;4;5];;
+- : int list = [5; 4; 3; 2; 1]
+{% endhighlight %} 
+
+3) 重写递归为tail-recursive style
+
+原递归：
+
+{% highlight ocaml %}
+# let rec fact(n:int)=
+  if n=0 then 1  
+  else n*fact(n-1);;
+val fact : int -> int = <fun>
+{% endhighlight %}
+
+重写：
+
+{% highlight ocaml %}
+# let rec factaux(acc:int)(n:int)=
+  if n=0 then acc
+  else factaux(acc*n)(n-1);;
+val factaux : int -> int -> int = <fun>
+# let fact(n:int)=factaux 1 n;;
+val fact : int -> int = <fun>
+{% endhighlight %}
+
+recursion style在返回后不需要进行计算。
+
+### 七、元组
+
+元素之间类型无限制：
+
+{% highlight ocaml %}
+# ("children",[3.1;2.5]);;
+- : string * float list = ("children", [3.1; 2.5])
+{% endhighlight %}
+
+{% highlight ocaml %}
+# let cube (x:int) = x*x*x;;
+val cube : int -> int = <fun>
+# (cube,"cube");;
+- : (int -> int) * string = (<fun>, "cube”)
+{% endhighlight %} 
+
+注意区分：
+{% highlight ocaml %}
+# let g(x,y) = x*y;;
+val g : int * int -> int = <fun>
+{% endhighlight %}
+
+{% highlight ocaml %}
+# let g(x:int)(y:int) = x*y;;
+val g : int -> int -> int = <fun>
+{% endhighlight %}
+
+### 八、模式匹配
+
+基本形式match xx with xx a->b，若不能完整覆盖该类型则会报warning：
+{% highlight ocaml %}
+val fact : int -> int = <fun>
+# let rec listSum(l:int list)=
+  match l with 
+  []->0
+  | x::y-> x + listSum y;;
+val listSum : int list -> int = <fun>
+{% endhighlight %}
+
+通配符 _：
+{% highlight ocaml %}
+# let rec fact(n:int)=
+  match n with
+  0->1  
+  | _ -> n*fact(n-1);;
+val fact : int -> int = <fun>
+{% endhighlight %}
+ 
+{% highlight ocaml %}
+# let lastName name=  
+  match name with (n,_,_)->n;;
+val lastName : 'a * 'b * 'c -> 'a = <fun>
+{% endhighlight %}
+
+### 九、多态
+‘a类型：
+{% highlight ocaml %}
+# let rec length l = 
+  match l with
+  [] -> 0
+  | _::y -> 1 + length y;;
+val length : 'a list -> int = <fun>
+{% endhighlight %}
+
+### 十、异常
+定义一个exception，注意首字母大写：
+{% highlight ocaml %}
+# exception NegNum;;
+exception NegNum
+{% endhighlight %}
+
+raise使用异常：
+{% highlight ocaml %}
+# let rec fact n =
+  if n<0 then raise NegNum  
+  else if n=0 then 1
+  else n*fact(n-1);;
+val fact : int -> int = <fun>
+# fact (-3);;
+Exception: NegNum.
+{% endhighlight %}
+
+### 十一、in
+
+{% highlight ocaml %}
+# let … in e;;
+{% endhighlight %}
+
+等价为
+{% highlight ocaml %}
+# let … ;;
+# e;;
+{% endhighlight %}
+
+1) 本地函数
+
+{% highlight ocaml %}
+# let rec loop (n:int)=
+  if n=1 then 1  
+  else n*loop(n-1) in 
+  loop 10;;
+- : int = 3628800
+# loop 2;;
+Error: Unbound value loop
+{% endhighlight %}
+
+2) 简单的split实现
+
+{% highlight ocaml %}
+# let split l = 
+  let rec loop w l =
+    match l with 
+      []->[w]
+      | (' '::ls) -> w::(loop [] ls)
+      | (c::ls) -> loop (w @ [c]) ls in
+    loop [] l;;
+val split : char list -> char list list = <fun>
+# (*其中@操作是List.append的简写*)
+{% endhighlight %}
+
+3) split另一种实现
+
+{% highlight ocaml %}
+# let split l =
+  let rec loop w l=
+  match w,l with
+  _,[] -> [w] 
+  | _,(' '::ls)->w::(loop [] ls)
+  | _,(c::ls)->loop (w@[c]) ls in
+  loop [] l;;
+val split : char list -> char list list = <fun>
+# (*和例子2的效果完全相同，会在多个空格时产生空列表*)
+{% endhighlight %}
+
+排除空列表的split实现
+
+{% highlight ocaml %}
+# let better_split l =
+  let rec loop w l =
+  match w,l with
+  [],[]->[]
+  | _,[]->[w]
+  | [],(' '::ls) -> loop [] ls   
+  | _,(' '::ls) -> w::(loop [] ls)
+  | _,(c::ls) -> loop (w@[c]) ls in
+  loop [] l;;
+val better_split : char list -> char list list = <fun>
+{% endhighlight %}
+
+先写到这吧orz...
+
+----------
+转载请注明出处，欢迎关注我的新浪微博[@窃听者Oscar](http://weibo.com/u/2703572323)
