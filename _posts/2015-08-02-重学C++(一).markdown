@@ -31,6 +31,7 @@ i++;
 打印出`i`后可以发现`i++`根本没有被执行。因为`??/`被替换成了`\`，而这会把下一行与本行拼接起来。
 
 所以在我们写程序时要时刻注意两个问号连用的情况，无论是在注释还是在字符串中(可能会报warning，g++中可以使用-Wno-trigraphs关闭提示)。下面是C++11(也有人管它叫C++0x)标准中规定的所有Trigraph Sequences：
+
 |Trigraph|Replacement|Trigraph|Replacement|Trigraph|Replacement|
 |----------|----------|----------|----------|----------|----------|
 |??=|#|??(|[|??<|{|
@@ -63,6 +64,7 @@ cout << "<:" << endl;  //print <:
 {% endhighlight %}
 
 下面是C++11规定的所有Alternative Tokens：
+
 |Alternative|Primitive|Alternative|Primitive|Alternative|Primitive|
 |----------|----------|----------|----------|----------|----------|
 |<%|{|and|&&|and_eq|&=|
