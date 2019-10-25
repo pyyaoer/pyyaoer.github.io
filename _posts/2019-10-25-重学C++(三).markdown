@@ -1,0 +1,258 @@
+---
+layout: post
+title:  "重学C++(三)"
+date:   2019-10-25 20:38:00 +0800
+categories: c++
+---
+
+万万没想到，再次写博客居然是四年之后了。这些年发生了很多事，天天过得都很累，也一直没什么心情写文章。希望本文能开个好头吧。
+
+本文总结了一些C/C++的一些简单但也许有效的性能优化方法。说它们简单，是因为它们基本不需要程序员大改程序的执行流程；说它们*也许*有效，是因为有些方法并不适用于所有编译器、平台，性能提升效果也不一定能保证。因此，本文也没搞什么循环几百万次的性能评测。读了这么多年的论文也算是明白了，拿简单的样例做测试和在复杂项目中应用，完全是两个概念。拿这些方法到自己的项目中去实验，有性能提升就恭喜了，不成的话还是回滚到老代码吧。
+
+## __builtin_expect和likely
+
+当调用一些可能会出错的函数的时候，经常会这么写代码：
+
+```cpp
+int *arr = malloc(5 * sizeof(int));
+if(arr == NULL) {
+  printf("Memory allocation failed");
+  return 1;
+}
+arr[1] = -1;
+```
+
+程序在`if`的地方产生了一个分支，接下来可能走花括号里的错误处理逻辑，也可能会跳过这个括号执行后面的语句。
+然而，现代的CPU基本上都会做[流水](https://en.wikipedia.org/wiki/Classic_RISC_pipeline)，甚至还会尝试控制冒险。一旦分支预测有误，可能会浪费掉好几个周期。
+
+此例中，编译器会将花括号里的程序块紧挨着跳转语句放置，那么CPU先预取的分支很有可能就是它——除非它不久之前在这个分支栽过几次：
+{% highlight assembly %}
+#  int *arr = malloc(5 * sizeof(int));
+            movl    $20, %edi
+            call    malloc@PLT
+            movq    %rax, -8(%rbp)
+#  if(arr == NULL) {
+            cmpq    $0, -8(%rbp)
+            jne     .L2
+#    printf("Memory allocation failed");
+            leaq    .LC0(%rip), %rdi
+            movl    $0, %eax
+            call    printf@PLT
+#    return 1;
+            movl    $1, %eax
+            jmp     .L3
+#  }
+        .L2:
+#  arr[1] = -1;
+            movq    -8(%rbp), %rax
+            addq    $4, %rax
+            movl    $-1, (%rax)
+{% endhighlight %}
+
+可以想见，CPU在见到`jne .L2`时，试图执行的很可能是紧随其后的对`printf`的调用过程。
+然而，你几乎可以肯定`malloc`不会让你失望，即它返回`NULL`的概率小到可以忽略。
+
+为了提醒编译器尝试这方面的优化，可以用`__builtin_expect`：
+```cpp
+if(__builtin_expect(arr == NULL, 0)) {}
+```
+
+可以看到，`__builtin_expect(long EXP, long C)`有两个参数。第一个参数为你想做判断的语句，第二个为它很可能的值。该函数的返回值为第一个参数的返回值。
+
+所以，这里的意思就是：`arr == NULL`几乎永远是错的，建议编译器把这个分支往后放一放。
+语义上，它并不影响原本的`if`判断结果，因为它最终的返回值还是`arr == NULL`的实际值。
+
+与此相反，若你有把握这个指针几乎一定是`NULL`，那么你就该把期望值设为`1`：
+```cpp
+if(__builtin_expect(arr == NULL, 1)) {}
+```
+
+这种写法终究有点别扭。对于布尔值的表达式，更方便的是Linux内核中经常做的一个封装：
+
+```cpp
+#define likely(x)       __builtin_expect(!!(x), 1)
+#define unlikely(x)     __builtin_expect(!!(x), 0)
+```
+
+这样一来，前例就写起来很直观了：
+```cpp
+if(unlikely(arr == NULL)) {} // 建议跳过花括号
+if(likely(arr == NULL)) {} // 建议不跳花括号
+```
+
+很容易就会联想到，那`switch`呢？怎么告诉编译器，某些`case`是很有可能会走到的，某些是几乎永远不会到的呢？用`__builtin_expect`几乎是不可能啦。但C++那帮天天琢磨新特性的标准委员会怎么会放过这么好用的东西？可以[看到](https://en.cppreference.com/w/cpp/language/attributes/likely)，`likely/unlikely`已经以属性说明符的形式出现在C++ 20的[标准](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2018/p0479r5.html)里，相信不久以后我们就可以这么写了：
+```cpp
+if(arr == NULL) [[unlikely]] {} // 建议跳过花括号
+if(arr == NULL) [[likely]] {} // 建议不跳花括号
+switch (n) {
+  case 1: do_sth1(); break;
+  [[likely]] case 2: do_sth2(); break;
+}
+```
+
+不过，除非有十足的把握保证预测确实如你所愿（比如做过profiling），否则还是尽量避免使用这种优化方式，免得画蛇添足。
+
+## inline
+
+由于`inline`是C++初创时的关键词之一，几乎所有介绍C++的书上都会提到内联函数优化的概念。由`inline`标记的函数会在编译期展开在被调用的地方，减少调用函数的开支。
+
+几乎所有提到内联函数的地方都会讲到：“必须在程序占用空间和程序执行效率之间进行权衡，因为过多的比较复杂的函数进行内联扩展将带来很大的存储资源开支”。因此，推荐在如下情形使用内联函数：
+
+1. 当你想在C++里写宏的时候。
+2. 行数非常少的函数。
+3. 被频繁调用，且行数不多。
+
+如下情形则需要避免使用内联函数：
+
+1. 有I/O。
+2. 函数很长。
+
+若函数包含循环、递归、静态变量、switch/goto等复杂分支跳转，编译器很大概率会忽略掉这个内联。
+
+
+题外话，在写头文件的时候，经常会遇到这种困惑：为什么要把函数的声明放在头文件里，然后把函数的定义放在另外的cpp文件？
+考虑到[前文](2015-08-22-重学C++(二).markdown)提到过的编译过程，`#include`会将头文件原封不动展开在当前文件中。
+当你把函数定义也放在头文件中时，整个文件会变得很大，而且这些定义也都会单独被编译的。
+比如：
+```cpp
+// header.h
+#ifndef HEADER_H_
+#define HEADER_H_
+void f(){};
+#endif
+
+// a.h
+void a();
+// a.cpp
+#include "header.h"
+void a(){ f(); }
+
+// b.h
+void b();
+// b.cpp
+#include "header.h"
+void b(){ f(); }
+
+// test.cpp
+#include "a.h"
+#include "b.h"
+int main(void) { a(); b(); }
+```
+```makefile
+main: test.o a.o b.o
+    g++ -o main $^
+test.o:
+a.o:
+b.o:
+```
+这看上去没什么问题。但在最后链接时会报multiple definition的错：
+```
+g++ -o main test.o a.o b.o
+
+b.o: In function `f()':
+b.cpp:(.text+0x0): multiple definition of `f()'
+a.o:a.cpp:(.text+0x0): first defined here
+collect2: error: ld returned 1 exit status
+Makefile:2: recipe for target 'main' failed
+make: *** [main] Error 1
+```
+这说明，`f()`在生成`a.o`和`b.o`的时候均有定义，编译器无法将两次定义等同。
+我们了解到，C++中的函数、变量[可以被多次声明，但只能被定义一次](https://en.cppreference.com/w/cpp/language/definition)。
+
+然而，这句话是有问题的。而问题就出在`inline`上：标记为`inline`的函数其实可以被**多次定义**的，但它们的定义必须完全一致，且不能出现在同一个待编译文件中（中间文件也不行）。
+因此，将`header.h`改成如下的形式，就可以顺利链接了。
+```cpp
+// header.h
+#ifndef HEADER_H_
+#define HEADER_H_
+inline void f(){};
+#endif
+```
+
+另一个典型的例子是类定义中包含的完整函数定义。基于同样的理由，当这个类分别被多个文件引用时，这些函数其实被定义了多次。然而不同的是，我们并没有将这些函数声明为`inline`函数。这是因为，被*完整定义*在类的定义之内的成员、友元函数，也会直接被当作内联函数。
+
+那么问题来了，函数可以用`inline`来规避重复定义，变量呢？相信大家都有把头文件里的`int a;`乖乖挪到cpp文件，然后在头文件里写`extern int a;`的经历吧。
+C++ 17说，要有`inline`变量，于是就有了头文件中的`inline int a;`：
+
+```cpp
+// pre-c++17, without inline:
+// a.h
+extern int a;
+// a.cpp
+int a;
+
+// c++17, inline variable
+// a.h
+inline int a;
+```
+
+当然，这也意味着`inline`的语义完全变化了。从C++ 17开始，`inline`的语义正式变化为了“允许多次定义”，而不是简单的“内联建议”。
+这不会影响到老代码中以`inline`标记的函数的内联行为，但从一定意义上扩充了语法。
+`inline`在新语义下还有很多用处，但和本文主题无关，有兴趣可以参照[这篇文章](https://en.cppreference.com/w/cpp/language/inline)。
+
+## string_view
+
+C++标准库中的`string`类一直是饱受诟病的。你可是C++啊，怎么可以比Python、JavaScript[还慢](https://stackoverflow.com/questions/8310039/why-do-stdstring-operations-perform-poorly)？
+人们为之找了各种各样的接口：需要动态分配空间、拷贝式的`=`重载等等。
+平心而论，要不是太考虑性能的话用起来还是很舒服的，但偏偏大公司就喜欢榨干性能，所以自行实现并开源了各种各样特殊场景下的`string`类替代品。
+
+其中一个很有名的实现叫做`string_view`。它来源于Google的[abseil](https://abseil.io)库，针对的是静态字符串的场景。这个类也已经被C++ 17标准接收，成为了STL的一部分。
+
+具体说来，它就是针对的一旦创建绝不修改的字符串，而这是代码中非常常见的情况。
+原始的`string`中，刨除那些会修改数据的接口，剩下的它都有。比如`find`、`substr`、`compare`之类，甚至还有`remove_prefix`、`swap`等看上去是在修改数据的操作。其实也不难看出，做出的这些“修改”其实都是在静态的字符串基础上更改字符串的可见区域。拷贝操作更不用说，把描述可见区域的几个量拷过去就成了，数据一点都不用动。
+
+这里的“可见区域”的概念，也正是`string_view`名字的由来——它本身不拥有对字符串的所有权，字符串在别人那里存着，`string_view`只是一个描述“如何观测”这个字符串的简单数据结构。
+而因这种特性而得到的性能的提升也很明显。以`substr`为例，`string`返回的是一个新的`string`，是一个`O(n)`的操作；而`string_view`只返回了一个描述可见区域的数据结构，是一个`O(1)`的操作。
+这在数据量巨大的时候优势非常明显。
+
+由于大部分接口都是和`string`兼容的，只要你没有更改它的需求，那么迁移到`string_view`也就是换个变量类型的事。
+而且，由于`string_view`已经定义好了基于`const string&`、`const char *`的构造函数，转换起来也很方便。下面的例子很直观，来自abseil的[文档](https://abseil.io/tips/1)：
+```cpp
+void TakesCharStar(const char* s);             // C convention
+void TakesString(const string& s);             // Old Standard C++ convention
+void TakesStringView(std::string_view s);      // C++17 C++ convention
+
+// explicit conversion
+void AlreadyHasString(const string& s) {
+  TakesCharStar(s.c_str());
+}
+// no explicit conversion
+void AlreadyHasString(const string& s) {
+  TakesStringView(s);
+}
+
+// compiler will make a copy
+void AlreadyHasCharStar(const char* s) {
+  TakesString(s);
+}
+// no copy; efficient!
+void AlreadyHasCharStar(const char* s) {
+  TakesStringView(s);
+}
+```
+
+## constexpr
+
+`constexpr`是自C++ 11开始新增的关键词。它可以用来修饰变量、函数、构造函数，告诉编译器，它的值一定是个常量。
+这与`const`有所不同：`const`只强调了“不可修改”，而`constexpr`更注重于“可以在编译期求值”。
+它使用时的场景有很多，规矩也有很多，但我觉得其实记住一句话就行了：你若觉得你给编译器足够多的提示了，那它就应该能算出来，给它机会它得中用。
+
+来个斐波那契的例子：
+```cpp
+#include <iostream>
+constexpr int factorial(int n) {
+  return n <= 1 ? 1 : (n * factorial(n - 1));
+}
+template<int n> struct constN {
+  constN() { std::cout << n << '\n'; }
+};
+int main() {
+  std::cout << "4! = " ;
+  constN<factorial(4)> out1; // computed at compile time
+  volatile int k = 8; // disallow optimization using volatile
+  std::cout << k << "! = " << factorial(k) << '\n'; // computed at runtime
+}
+```
+
+`constexpr`与[模板元编程](https://en.wikipedia.org/wiki/Template_metaprogramming)技巧都可以做编译期的计算。但它们之间的区别也是很明显的：前者是命令式的语句流，后者本质上是一种函数式的编程范式。
+当然，更主要的区别是，前者早就在实际工程中广泛使用，后者还是以炫技为主。既然二者都是图灵完备的，为什么不在C++里写C++呢？
