@@ -256,3 +256,168 @@ int main() {
 
 `constexpr`与[模板元编程](https://en.wikipedia.org/wiki/Template_metaprogramming)技巧都可以做编译期的计算。但它们之间的区别也是很明显的：前者是命令式的语句流，后者本质上是一种函数式的编程范式。
 当然，更主要的区别是，前者早就在实际工程中广泛使用，后者还是以炫技为主。既然二者都是图灵完备的，为什么不在C++里写C++呢？
+
+## 循环中的无关代码的移除
+
+先看一个例子：
+```cpp
+#include <math.h>
+#include <stdio.h>
+void print_sin(const double &x) {
+  for (int i = 0; i < 10; ++i) {
+    printf("%lf\n", sin(x));
+  }
+}
+int main(void) {
+    print_sin(0);
+}
+```
+
+程序的逻辑很简单：打印十次`sin(x)`的值。在此例中，`print_sin`似乎可以被优化成类似于如下的形式：
+
+```cpp
+void print_sin(const double &x) {
+  double tmp = sin(x);
+  for (int i = 0; i < 10; ++i) {
+    printf("%lf\n", tmp);
+  }
+}
+```
+这是一个将循环中无关代码移除的过程，重复多次计算的`sin(x)`应被挪到循环外面去。然而，实际编译一下却发现：
+
+{% highlight assembly %}
+# loop counter: %ebx=10
+            movl    $10, %ebx
+# loop
+        .L2:
+# sin
+            movsd   (%r12), %xmm0
+            call    sin@PLT
+# printf
+            movq    %rbp, %rsi
+            movl    $1, %edi
+            movl    $1, %eax
+            call    __printf_chk@PLT
+# --%ebx
+            subl    $1, %ebx
+            jne     .L2
+{% endhighlight %}
+
+整个循环从`.L2`开始，`jne .L2`结束，依次包含了对`sin`、`printf`的调用。很明显，`sin(x)`这句话并没有被拿到循环外面。是编译器弱智了么？
+
+试着把参数x的类型改为按值传递`const double x`，这时神奇的事情发生了：
+
+{% highlight assembly %}
+# loop counter: %ebx=10
+            movl    $10, %ebx
+# sin
+            call    sin@PLT
+            movsd   %xmm0, 8(%rsp)
+# loop
+        .L2:
+# printf
+            movsd   8(%rsp), %xmm0
+            movq    %rbp, %rsi
+            movl    $1, %edi
+            movl    $1, %eax
+            call    __printf_chk@PLT
+# --%ebx
+            subl    $1, %ebx
+            jne     .L2
+{% endhighlight %}
+
+正如前面所预期的一样，`sin(x)`被拿到循环外面，只做了一次。
+
+发生这种情况的原因，在于C++的const引用机制的一个特性（读作feature写作bug）：它可以保证使用该引用时，所指向的区域不会被更改，但其他地方还是可能更改这个值！
+一个简单的例子：
+
+```cpp
+void f(const int& x, int& y) {
+  printf("%d ", x);
+  ++y;
+  printf("%d\n", x);
+}
+
+int main(void) {
+  int a = 0;
+  f(a, a); // output: 0 1
+}
+```
+
+本例中，主函数调用`f(x, y)`时，两个参数引用了同一块内存区域。虽然程序无法通过x来修改这个数据的值，但依旧可以通过y来影响打印x的结果！
+
+然而与前面的例子不同的是，`print_sin`中并没有看到哪些可能修改参数x的地方，为什么编译器还是不敢做这个优化呢？
+关键点其实在于`printf`。
+
+在编译test.o的时候，编译器还并没有看到`printf`函数的实现。
+假设，x引用的是一个全局变量，而`printf`恰好也在内部修改了这个变量，那么下一次循环时x的值就变了！
+在执行`g++ -c -o test.o test.cpp`的时候，x引用的是不是全局变量、`printf`究竟有没有改，这些对于编译器来说是不可见的（链接的时候才会去找`printf`的实现），所以不敢贸然优化。
+
+为了验证这个猜测，不妨把`printf`去掉：
+```cpp
+#include <math.h>
+#include <stdio.h>
+double sin_x10(const double &x) {
+  double sum = 0;
+  for (int i = 0; i < 10; ++i) {
+    sum += sin(x);
+  }
+  return sum;
+}
+int main(void) {
+  printf("%lf\n", sin_x10(0));
+}
+```
+{% highlight assembly %}
+# sin
+            movsd   (%rdi), %xmm0
+            call    sin@PLT
+            pxor    %xmm1, %xmm1
+# loop counter: %ebx=10
+            movl    $10, %eax
+# loop
+        .L2:
+# --%ebx
+            subl    $1, %eax
+            addsd   %xmm0, %xmm1
+            jne     .L2
+# return value
+            movapd  %xmm1, %xmm0
+{% endhighlight %}
+
+这下编译器终于知道把`sin(x)`给挪外面了，说明我们的猜测是正确的：正是因为`printf`的存在，使得编译器不敢随意移除这些与循环“事实上”无关的代码。
+因此，**如果你确定某代码片段真的与循环无关**，还是要尽量**手动**把它挪到循环外面。
+
+题外话，最后的例子中其实还有一个有意思的点：`sin_x10`本质上是把`sin(x)`乘以10返回，编译器为什么没看到这一点呢？
+如果有这样的想法，那么不妨试试如下的片段：
+```cpp
+#include <math.h>
+#include <stdio.h>
+int sin_x10_int(const double &x) {
+  int sum = 0;
+  for (int i = 0; i < 10; ++i) {
+    sum += (int)sin(x);
+  }
+  return sum;
+}
+int main(void) {
+  printf("%d\n", sin_x10_int(0));
+}
+```
+{% highlight assembly %}
+# sin
+            movsd   (%rdi), %xmm0
+            call    sin@PLT
+            cvttsd2si       %xmm0, %eax
+            addq    $8, %rsp
+# *10
+            leal    (%rax,%rax,4), %eax
+            addl    %eax, %eax
+            ret
+{% endhighlight %}
+
+非常简单的一个乘10返回的操作，完全没有使用循环。为什么int就可以，double就不行呢？
+这就牵涉到C++的一个基本原则：[as-if rule](https://en.cppreference.com/w/cpp/language/as_if)，大意就是编译器要想改程序执行流程，得保证执行结果不变。
+
+而我们知道，double的精度是有限的，甚至连加法结合律都不满足，更别说是比较累加10次和乘以10的结果了！
+int就不存在这种情况，所以编译器看到要累加int就很开心，看到double就不太敢乱优化。
