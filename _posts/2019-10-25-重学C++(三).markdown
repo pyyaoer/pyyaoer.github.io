@@ -1,6 +1,6 @@
 ---
 layout: post
-title:  "重学C++(三)"
+title:  "重学C++(三)：容易忽视的简单优化策略"
 date:   2019-10-27 2:15:00 +0800
 categories: c++
 ---

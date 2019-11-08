@@ -1,0 +1,105 @@
+---
+layout: post
+title:  "重学C++(四)：可以，但为什么"
+date:   2019-11-01 00:51:00 +0800
+categories: c++
+---
+
+本文旨在搜集一些C++中语法上没问题，但（在我看来）看上去比较奇怪的写法。纯粹为了好玩~
+
+## Return value in void function
+
+众所周知，`void`函数中可以有不带操作数的`return`语句。然而，C++却允许这样的写法（C会在这里报个warning）：
+
+```cpp
+void func() {
+  return (void)1;
+}
+```
+
+-O0编译一下，发现直接给整成了`nop`，一点面子也不给的哦。
+那么问题就来了，为什么可以这么写代码呢？
+
+其实这里的关键点不在`return`，而在`(void)`。我们习惯了万能指针`void*`，但很少会想起`void`本身也是C++中的基础类型之一。
+返回值类型为`void`的函数，和被强制转换为`void`的表达式，都能提供`void`类型。
+
+然而，它是一个不完全类型，且有着很多的特殊限制。比如，`void`类型的对象不能作为左值，而作为纯右值时一般也是没有返回体的（纯右值所初始化的临时对象），有返回体的情形，目前（2019-11-01）仅限于作为`decltype`等特殊说明符的参数。
+因此，这些被强转为`void`的表达式会显示地放弃返回值，仅保留可能的副作用。
+
+将表达式强转为`void`在C/C++中主要是为了屏蔽变量、参数等未使用之类的错误提示（也可以使用`-Wno-unused-value`屏蔽，但极不推荐）：
+
+```c
+void f(int *p) {
+  (void) (p && ++*p);
+}
+int main(void) {
+  int x = 0;
+  f(&x);
+  f(NULL);
+  printf("%d\n", x);
+}
+```
+
+上述函数用来自增整型指针p，但在p为`NULL`时会短路后续的自增操作。直接使用`p && ++*p`在`-Wall`时会报`warning: value computed is not used [-Wunused-value]`，强转为`void`可以屏蔽这一警告。
+
+
+## do-while(false)
+
+我们经常用`do{}while(false)`在宏里面包裹语句块：
+
+```cpp
+#define DO_STH(x) \
+do { \
+  do_sth1(x); \
+  do_sth2(x); \
+} while (false)
+
+if(cond)
+  DO_STH(0);
+else
+  DO_STH(1);
+```
+
+可以看到，这个语句块在没有被包裹时，`if`只认得第一个`do_sth1(x)`，后续的`else`则产生了孤悬。同时，只用一对括号去包裹也是有问题的：`DO_STH(0);`后面的分号依旧会产生`if{};else`的语法错误。
+`do{}while(false)`后面恰恰需要加一个分号，因此这种写法才是正确的。
+
+以上都是比较好理解的，但总会有奇怪的人也在正常的代码段里写`do{}while(false)`形式的语句块。那么会有什么意义呢？
+
+首先，是作用域带来的析构。比如希望使用`std::lock_guard`锁住一些语句：
+```cpp
+do {
+  std::lock_guard<std::mutex> lock(mutex_var);
+  do_sth1();
+  do_sth2();
+} while(false);
+do_sth3();
+```
+
+当然，这是一个大括号就可以解决的事，效果完全一致，所以没必要多此一举：
+```cpp
+{
+  std::lock_guard<std::mutex> lock(mutex_var);
+  do_sth1();
+  do_sth2();
+}
+do_sth3();
+```
+
+那么`do{}while(false)`又能实现什么独特的操作呢？可以看看下面的这段代码：
+
+```cpp
+do {
+   if (do_sth1() != 0) break;
+   do_sth2();
+ } while(false);
+undo_sth1();
+```
+
+看到这种脑洞，我反正是震惊的。意图很好理解：使用`break`或`continue`来改变程序的执行流程。
+比如，在语句块一开始申请了一些空间/打开了一些文件/加了锁，希望在中间某些地方错误退出时保证这些资源被释放，就可以使用这种`break`的方式跳转到资源释放的地方。
+
+但正如[这个帖子](https://stackoverflow.com/questions/1412081/are-do-while-false-loops-common)的评论区所说，C里应当用`goto`、C++里应当用RAII或异常。
+写成`do{}while(false)`反而比`goto`更加缺乏可读性。
+
+----------
+转载请注明出处，欢迎关注我的新浪微博[@窃听者Oscar](http://weibo.com/u/2703572323)

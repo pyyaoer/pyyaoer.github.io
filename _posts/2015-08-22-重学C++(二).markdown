@@ -1,6 +1,6 @@
 ---
 layout: post
-title:  "重学C++(二)"
+title:  "重学C++(二)：C++的编译和链接"
 date:   2015-08-22 16:12:56 +0800
 categories: c++
 ---
