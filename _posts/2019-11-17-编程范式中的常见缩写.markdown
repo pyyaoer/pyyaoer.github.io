@@ -1,0 +1,165 @@
+---
+layout: post
+title:  "编程范式中的常见缩写"
+date:   2019-11-17 15:55:00 +0800
+categories: c++
+---
+
+编程范式，即代码的风格、规范。大到命令式/函数式编程的分野，小到禁用`goto`、变量的匈牙利命名法等细致的规则，在本文中都当作编程范式的覆盖范围。
+
+正如计算机的大多数领域，编程范式中也存在着很多的缩写。懂的人会心一笑，不懂的人只能乖乖去搜索。本文旨在总结一些常见的缩写，防止在读类似文章时因为这些词而产生递归搜索。若是读者见到了其他类似的缩写，也可以微博私信我！
+
+## OO: Object Oriented
+
+面向对象。变体有OOP: Object-Oriented Programming。
+
+面向对象是一种常见的范式，基本上不用多做说明。它其实是一种组织代码时的思维方式，即将逻辑上有关联的数据结构、函数包装成一个逻辑上的整体，称作“对象”。其中的数据结构代表该对象的内禀属性，函数代表外界能够与这个对象发生交互的方法。面向对象追求“高内聚、低耦合”的效果，使得模块有着清晰的界限和层次感，协同开发的福音。
+
+函数语言只能说是“支持”面向对象。至于究竟有没有对象，还是程序员自己决定的。你当然能把上海的交通数据放在北京的气象类中，但我的建议是另请高明。
+
+## ML: Meta Language
+
+ML语言。
+
+它是Robin Milner基于Hindley-Milner类型系统实现的语言。它有几个常见的方言后代：OCaml、F#、Standard ML(SML)，[这个页面](http://adam.chlipala.net/mlcomp/)给出了OCaml和SML的一些语法对比。
+
+那它“Meta”在哪里呢？Wikipedia的[词条](https://en.wikipedia.org/wiki/ML_%28programming_language%29)给出了答案：
+
+> ML was conceived to develop proof tactics in the LCF theorem prover (whose language, pplambda, a combination of the first-order predicate calculus and the simply-typed polymorphic lambda calculus, had ML as its metalanguage).
+
+## RAII: Resource Acquisition Is Initialization
+
+资源获取即初始化。
+
+由于众所周知的原因，C++没有提供全局的自动垃圾回收机制，这就要求用户在适当的时候手动释放申请的内存资源。
+然而，这就要求程序员对变量的生存周期有着准确的把握。虽然已有许多成熟的内存泄露检测工具，但修正这些问题也很浪费精力。
+此外，除了动态分配的内存资源外，还有打开的文件、socket、数据库连接之类，普遍意义的需要释放的资源。
+
+而RAII的要求就是，所有的资源的生存周期都必须与一个对象的生存周期绑定——在构造对象时申请，在析构对象时释放；若申请失败，则在构造时就及时抛出异常；而在析构的时候禁止抛出异常，保证析构的所有步骤都正常完成。
+这样，程序员只需要管怎么释放资源，而不需要考虑什么时候释放，也不需要担心忘记释放。
+
+RAII虽然也是依赖于类的帮助，但显然和面向对象的思维方式并不一致。
+面向对象是以对象为中心，考虑主要的是对象之间的联系。而RAII是以资源为中心，依赖于类的生命周期完成资源的自动申请与释放。
+
+cppreference的[这篇文章](https://en.cppreference.com/w/cpp/language/raii)详细介绍了RAII。
+文中提到，如果类提供了类似于lock/unlock，open/close，init/destroy等接口，说明你的设计违反了RAII。
+此文还给了一个[例子](https://en.cppreference.com/w/cpp/language/raii)：
+```cpp
+std::mutex m;
+void bad() {
+    m.lock();                    // acquire the mutex
+    f();                         // if f() throws an exception, the mutex is never released
+    if(!everything_ok()) return; // early return, the mutex is never released
+    m.unlock();                  // if bad() reaches this statement, the mutex is released
+}
+void good() {
+    std::lock_guard<std::mutex> lk(m); // RAII class: mutex acquisition is initialization
+    f();                               // if f() throws an exception, the mutex is released
+    if(!everything_ok()) return;       // early return, the mutex is released
+}                                      // if good() returns normally, the mutex is released
+```
+
+显然，需要手动判断在哪里lock，哪里unlock的传统上锁方法是不符合RAII的。
+我第一次用`std::lock_guard`时，就发现咋只有个疑似上锁的地方，怎么没看到哪里解锁了——这使我很慌，因为不晓得它锁住的范围，害怕出现资源冲突或死锁。
+研究了以后才发现，这玩意是出作用域的时候，因`std::lock_guard`类的析构而自动解锁的。
+当时觉得这么搞多此一举啊，后来我只能说真香。
+
+另外，作用域这玩意大多数情况下就是加括号。但如果想给某个本身有括号的分支结构上锁时，有时可以利用这个天然形成的作用域。如下，m1锁住了一整个for循环，m2锁住了for循环的每一次循环（注意比较二者区别），均未额外增加括号。
+```cpp
+std::mutex m1;
+for (int i = 0, std::lock_guard<std::mutex> lk(m1); i < 10; ++i) {
+  // Do sth
+}
+
+std::mutex m2;
+for (int i = 0; i < 10; ++i) {
+  std::lock_guard<std::mutex> lk(m2);
+  // Do sth
+}
+```
+
+然而，考虑这种写法：
+```cpp
+std::mutex m;
+{
+  std::lock_guard<std::mutex> lk(m);
+  if (!q.empty()) {
+    q.pop();
+  }
+}
+```
+为了锁住上面的if语句，我们还是引入了一个括号，因为判断的条件语句本身就依赖于需要上锁的对象q，所以`std::lock_guard`的申请不能放在if作用域中的第一行。
+不过，C++17解决了这一问题，我们可以在if的条件判断中像for一样，初始化一些只在这个作用域有效的变量：
+```cpp
+std::mutex m;
+if (std::lock_guard<std::mutex> lk(m); !q.empty()) {
+  q.pop();
+}
+```
+
+## IIFE: Immediately-Invoked Function Expression
+
+即调函数表达式。
+
+和C++不同的是，Javascript到ES5为止都只有函数作用域，缺乏块级作用域。
+因此，使用简单的变量名很容易产生冲突，污染作用域。
+所以程序员经常使用函数作用域来模拟：
+```Javascript
+var a = 0;
+(function() {
+  var a = 1;
+  console.log(a); // 1
+  console.log(global.a); // 0
+})();
+console.log(a); // 0
+```
+可以看到，函数在被定义之后就立刻被执行了，而它内部的a并不会影响全局的a的值。
+这是因为，Javascipt里作用域的上下文是嵌套继承的，即在本作用域找不到的变量定义，会继续去它的父域寻找，直到找到为止。
+因此，IIFE可以有效避免局部变量对全局作用域的污染。
+
+当然，C++中也有IIFE的应用，基本上都是用在只出现一次的Lambda表达式中。
+一个初始化`int`类型数据的例子：
+```cpp
+int value = [](){return 1;}();
+```
+为什么要这么写呢？直接写`int value = 1;`不就行了么？
+那么看这个例子：
+```cpp
+const int value = [&](){
+  if (some_complex_condition_1){
+    return 1;
+  } else if (some_complex_condition_2){
+    return 2;
+  }
+  return 0;
+}
+```
+由于`const`类型的数据只能被赋值一次，所以可以用IIFE把复杂的值计算过程包裹在一个提供右值的表达式中。
+
+[这个视频](https://www.youtube.com/watch?v=d4nmNYTM1j8)里有一个更精彩的例子，证实了把变量设成`const`在某些情况下带来的性能提升。我只把核心代码放在这里，道理和前面的例子其实是一样的：
+```cpp
+// non-const string initialized after being constructed, slower
+{
+  std::string str;
+  switch(some_value % 4) {
+    case 0: str = "a rather long string here 0"; break;
+    case 1: str = "a rather long string here 0"; break;
+    case 2: str = "a rather long string here 0"; break;
+    default: str = "other"; break;
+  }
+}
+// const string initialized directly by an IIFE lambda, faster
+{
+  const std::string str = [&]() -> std::string {
+    switch(some_value % 4) {
+      case 0: return "a rather long string here 0";
+      case 1: return "a rather long string here 0";
+      case 2: return "a rather long string here 0";
+      default: return "other";
+    }
+  }();
+}
+```
+
+----------
+转载请注明出处，欢迎关注我的新浪微博[@窃听者Oscar](http://weibo.com/u/2703572323)
