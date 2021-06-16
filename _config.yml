@@ -27,6 +27,8 @@ url: "http://pyyaoer.github.io" # the base hostname & protocol for your site, e.
 twitter_username: AkemiOscar
 github_username:  pyyaoer
 
+google_analytics: G-VTEG0TPSCN
+
 # Build settings
 theme: minima
 plugins:
