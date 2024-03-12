@@ -100,6 +100,3 @@ undo_sth1();
 
 但正如[这个帖子](https://stackoverflow.com/questions/1412081/are-do-while-false-loops-common)的评论区所说，C里应当用`goto`、C++里应当用RAII或异常。
 写成`do{}while(false)`反而比`goto`更加缺乏可读性。
-
-----------
-转载请注明出处，欢迎关注我的新浪微博[@窃听者Oscar](http://weibo.com/u/2703572323)

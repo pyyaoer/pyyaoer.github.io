@@ -421,6 +421,3 @@ val better_split : char list -> char list list = <fun>
 {% endhighlight %}
 
 先写到这吧orz...
-
-----------
-转载请注明出处，欢迎关注我的新浪微博[@窃听者Oscar](http://weibo.com/u/2703572323)
